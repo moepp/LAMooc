@@ -1,0 +1,8 @@
+get started quizzes with username and particular course for a particular user/course/...
+#######################################################
+
+SELECT test_db.quizzes_started.qname, test_db.quizzes_started.uname, test_db.quizzes.cname  
+FROM test_db.quizzes_started
+INNER JOIN test_db.quizzes
+ON test_db.quizzes_started.qname = test_db.quizzes.qname
+WHERE test_db.quizzes_started.uname = "suho";
