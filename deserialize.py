@@ -38,7 +38,8 @@ forum_written = dict()
 forum_read = dict()
 forum_written_per_user = dict()
 forum_read_per_user = dict()
-courses = []
+courses_array = []
+quizzes_array = []
 
 #mysql connection
 cnx = mysql.connector.connect(user='stephan',password='123456', database='test_db', host='localhost')
@@ -121,7 +122,7 @@ def parseDownload(result,time):
 	if "/wbtmaster/threads" in result['uri']:
 		if "token" in result.keys() and result['token'] in logins_tokens.keys():
 			filename = 'unknown'
-			for course in courses:
+			for course in courses_array:
 				course_adapted = course + "/"
 				if course_adapted in result['uri']:
 					filename=filterString(result['uri'],course_adapted,'?token')
@@ -160,7 +161,7 @@ def parseForum(result,time):
 				forum_written_per_user[logins_tokens[result['token']]] += 1
                 	else:
                         	forum_written_per_user[logins_tokens[result['token']]] = 1
-			if forumname in courses:
+			if forumname in courses_array:
 				curA.execute("INSERT INTO forums_written (fname,uname,time) VALUES (%s,%s,%s)",(forumname,logins_tokens[result['token']],time))
         			cnx.commit()
 			else:
@@ -182,7 +183,7 @@ def parseForum(result,time):
                         if screenOutput and printForumRead:
 				print "FORUM entry in course ", room," read by ", logins_tokens[result['token']],"   at ",time
 	
-			if room in courses:	
+			if room in courses_array:	
 				curA.execute("INSERT IGNORE INTO forums (fname,cname) VALUES (%s,%s)",(room,room))
         			cnx.commit()
 				curA.execute("INSERT INTO forums_read (fname,uname,time) VALUES (%s,%s,%s)",(room,logins_tokens[result['token']],time))
@@ -193,7 +194,7 @@ def parseForum(result,time):
 splunk_data = []
 
 #Deserialization
-for i in range(1):
+for i in range(0):
 	if screenOutput and printDeserializationProgress:
 		print "Opened file "+str(i+1)
 	file = open("serialized_splunk_data/serialized_"+str(i+1)+"_04_2014.pickle", "rb")
@@ -209,19 +210,74 @@ for i in range(1):
 
 #Scan existing quizzes and existing courses
 for file in os.listdir("quizzes"):
-    if file.endswith(".txt"):
-	coursename = file.split("_")[0]
-	curA.execute("INSERT IGNORE INTO courses (cname, fullcname) VALUE (%s,%s)", (coursename,coursename))
-	courses.append(coursename);
-	destination = "quizzes/"+str(file)
-	f = open(destination, 'r')
-	for line in f:
-		quizzes = line.split(";")
-		for quiz in quizzes:
-			insert_quiz = ("INSERT IGNORE INTO quizzes (qname, cname) VALUES (%s,%s)")
-			curA.execute(insert_quiz,(quiz,coursename))
-        		cnx.commit()
-        f.close()
+	if file.endswith(".txt"):
+		coursename = file.split("_")[0]
+		curA.execute("INSERT IGNORE INTO courses (cname, fullcname) VALUE (%s,%s)", (coursename,coursename))
+		courses_array.append(coursename)
+		destination = "quizzes/"+str(file)
+		f = open(destination, 'r')
+		for line in f:
+			quizzes = line.split(";")
+			for quiz in quizzes:
+				insert_quiz = ("INSERT IGNORE INTO quizzes (qname, cname) VALUES (%s,%s)")
+				curA.execute(insert_quiz,(quiz,coursename))
+				cnx.commit()
+				quizzes_array.append(quiz)
+		f.close()
+
+for file in os.listdir("quizzes"):
+	#print quizzes
+	progress_array = []
+	if file.endswith(".scorm"):
+		#print file
+		for quiz in quizzes_array:
+			if quiz in file:
+				stripstring = "_"+quiz+".scorm"
+				username = file.split(stripstring)[0]
+				quizname = quiz
+				
+		destination = "quizzes/"+str(file)
+		f = open(destination, 'r')
+		for line in f:
+			
+			if "progress" in line:
+				progress_array = ['0','0','0','0','0']
+				progress = line.split("progress")[1]
+				progress = progress.replace("%","")
+				progress = progress.replace(":","")
+				progress = progress.split(";")
+				#print progress
+				i = 0
+				#print len(progress)
+				for item in progress:
+					if i < 5:
+						if item == '':
+							progress_array[i]='0'
+						else: 
+							progress_array[i]=item
+					#if i <= 5:
+					#	if item == '':
+					#		progress_array.append('0')
+					#	else:
+					#		progress_array.append(item)
+					i+=1
+				
+			else:
+				progress_array = ['0','0','0','0','0']
+			#print progress_array, username, quizname
+			first =  int(float(progress_array[0]))
+			second =   int(float(progress_array[1]))
+			third  =  int(float(progress_array[2]))
+			fourth =  int(float(progress_array[3]))
+			fifth =  int(float(progress_array[4]))
+
+			insert_attempt = ("REPLACE INTO quiz_attempts (qname, uname, first, second, third, fourth, fifth) VALUES(%s,%s,%s,%s,%s,%s,%s)")
+			insert_data = (quizname, username, first, second, third, fourth, fifth)
+			curA.execute(insert_attempt, insert_data)
+			cnx.commit()
+		
+		f.close()
+			
 
 previous_uri = None
 
@@ -243,6 +299,8 @@ for result in splunk_data:
 		parseDownload(result,time)
 		parseForum(result,time)
 		previous_uri = result['uri']
+curA.close()
+cnx.close()
 		
 #sort dicts
 sorted_logins = sorted(logins_number.iteritems(), key=operator.itemgetter(1))
